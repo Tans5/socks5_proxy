@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"socks5_proxy/utils"
 	"sync"
 )
 
@@ -56,18 +55,24 @@ func (tcpProxyConn TcpProxyConn) handTcpProxy() {
 	//	return
 	//}
 
-	address, port, _, err := tcpProxyConn.receiveCommand()
+	address, port, addressType, err := tcpProxyConn.receiveCommand()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
-	fmt.Printf("Proxy Address: %v, Port: %v\n", string(address), int(binary.LittleEndian.Uint16(port)))
-	err = tcpProxyConn.acceptCommand()
+
+	remoteServerIp, err := resolveRemoteServerAddress(address, port, addressType[0])
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
-	remoteServer, err := net.Dial("tcp", net.IP{address[0], address[1], address[2], address[3]}.String() + ":" + string(binary.LittleEndian.Uint16(port)))
+	fmt.Printf("Proxy Server Request: %v\n", remoteServerIp.String())
+	remoteServer, err := net.Dial("tcp", remoteServerIp.String())
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	err = tcpProxyConn.acceptCommand(remoteServer.LocalAddr().(*net.TCPAddr))
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -150,20 +155,20 @@ func (tcpProxyConn TcpProxyConn) readPassword() ([]byte, []byte, error) {
 }
 
 // TODO: Auth Check.
-func (proxy TcpProxyConn) authCheck(userName []byte, password []byte) error {
-	client := proxy.conn
+func (tcpProxyConn TcpProxyConn) authCheck(userName []byte, password []byte) error {
+	client := tcpProxyConn.conn
 	_, err := client.Write([]byte{socketV5, authCheckPass})
 	return err
 }
 
-type CommandNotSupport struct {}
+type CommandNotSupport struct{}
 
 func (e *CommandNotSupport) Error() string {
 	return "Socks command not support"
 }
 
 /**
- * Return address and port.
+ * Return address, port and address type.
  */
 func (tcpProxyConn TcpProxyConn) receiveCommand() ([]byte, []byte, []byte, error) {
 
@@ -192,12 +197,24 @@ func (tcpProxyConn TcpProxyConn) receiveCommand() ([]byte, []byte, []byte, error
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	addrLen := make([]byte, 1)
-	_, err = client.Read(addrLen)
-	if err != nil {
-		return nil, nil, nil, err
+
+	var addressLen int
+	switch addrType[0] {
+	case addressTypeIpV4:
+		addressLen = 4
+	case addressTypeDomain:
+		addrLen := make([]byte, 1)
+		_, err = client.Read(addrLen)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		addressLen = int(addrLen[0])
+	case addressTypeIpV6:
+		addressLen = 16
+	default:
+		return nil, nil, nil, &CommandNotSupport{}
 	}
-	address := make([]byte, int(addrLen[0]))
+	address := make([]byte, addressLen)
 	_, err = client.Read(address)
 	if err != nil {
 		return nil, nil, nil, err
@@ -210,13 +227,40 @@ func (tcpProxyConn TcpProxyConn) receiveCommand() ([]byte, []byte, []byte, error
 	return address, port, addrType, nil
 }
 
-func (tcpProxyConn TcpProxyConn) acceptCommand() error {
-	client := tcpProxyConn.conn
-	ip, _ := utils.FindLocalIPV4()
-	port := uint16(8081)
-	portBytes := make([]byte, 2)
-	binary.LittleEndian.PutUint16(portBytes, port)
-	_, err := client.Write([]byte{socketV5, commandResponseOk, 0x00, addressTypeIpV4, 0x04, ip[0], ip[1], ip[2], ip[3], portBytes[0], portBytes[1]})
-	return err
+func resolveRemoteServerAddress(address, port []byte, addressType byte) (*net.TCPAddr, error) {
+	portInt := int(binary.LittleEndian.Uint16(port))
+	switch addressType {
+	case addressTypeIpV4:
+		ip := net.IPv4(address[0], address[1], address[2], address[3])
+		fmt.Printf("Request IPv4:%v, port: %v\n", ip.String(), portInt)
+		return &net.TCPAddr{IP: ip, Port: portInt}, nil
+	case addressTypeDomain:
+		domain := string(address)
+		fmt.Printf("Request Domain: %v, port: %v \n", domain, portInt)
+		ips, err := net.LookupIP(domain)
+		if err != nil {
+			return nil, err
+		}
+		var ipv4 net.IP
+		for _, ip := range ips {
+			if ip.To4() != nil {
+				ipv4 = ip
+				break
+			}
+		}
+		if ipv4 == nil {
+			return nil, &CommandNotSupport{}
+		}
+		return &net.TCPAddr{IP: ipv4, Port: portInt}, nil
+	default:
+		return nil, &CommandNotSupport{}
+	}
 }
 
+func (tcpProxyConn TcpProxyConn) acceptCommand(localAddr *net.TCPAddr) error {
+	client := tcpProxyConn.conn
+	portBytes := make([]byte, 2)
+	binary.LittleEndian.PutUint16(portBytes, uint16(localAddr.Port))
+	_, err := client.Write([]byte{socketV5, commandResponseOk, 0x00, addressTypeIpV4, localAddr.IP[0], localAddr.IP[1], localAddr.IP[2], localAddr.IP[3], portBytes[0], portBytes[1]})
+	return err
+}
