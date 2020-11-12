@@ -228,7 +228,7 @@ func (tcpProxyConn TcpProxyConn) receiveCommand() ([]byte, []byte, []byte, error
 }
 
 func resolveRemoteServerAddress(address, port []byte, addressType byte) (*net.TCPAddr, error) {
-	portInt := int(binary.LittleEndian.Uint16(port))
+	portInt := int(binary.BigEndian.Uint16(port))
 	switch addressType {
 	case addressTypeIpV4:
 		ip := net.IPv4(address[0], address[1], address[2], address[3])
@@ -260,7 +260,7 @@ func resolveRemoteServerAddress(address, port []byte, addressType byte) (*net.TC
 func (tcpProxyConn TcpProxyConn) acceptCommand(localAddr *net.TCPAddr) error {
 	client := tcpProxyConn.conn
 	portBytes := make([]byte, 2)
-	binary.LittleEndian.PutUint16(portBytes, uint16(localAddr.Port))
+	binary.BigEndian.PutUint16(portBytes, uint16(localAddr.Port))
 	_, err := client.Write([]byte{socketV5, commandResponseOk, 0x00, addressTypeIpV4, localAddr.IP[0], localAddr.IP[1], localAddr.IP[2], localAddr.IP[3], portBytes[0], portBytes[1]})
 	return err
 }
