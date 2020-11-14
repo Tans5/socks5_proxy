@@ -241,17 +241,26 @@ func resolveRemoteServerAddress(address, port []byte, addressType byte) (*net.TC
 		if err != nil {
 			return nil, err
 		}
-		var ipv4 net.IP
-		for _, ip := range ips {
-			if ip.To4() != nil {
-				ipv4 = ip
-				break
+		//var ipv4 net.IP
+		//for _, ip := range ips {
+		//	if ip.To4() != nil {
+		//		ipv4 = ip
+		//		break
+		//	}
+		//}
+		//if ipv4 == nil {
+		//	return nil, &CommandNotSupport{}
+		//}
+		var ip net.IP
+		for _, v := range ips {
+			if v.To4() != nil || v.To16() != nil {
+				ip = v
 			}
 		}
-		if ipv4 == nil {
+		if ip == nil {
 			return nil, &CommandNotSupport{}
 		}
-		return &net.TCPAddr{IP: ipv4, Port: portInt}, nil
+		return &net.TCPAddr{IP: ip, Port: portInt}, nil
 	default:
 		return nil, &CommandNotSupport{}
 	}

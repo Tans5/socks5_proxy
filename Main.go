@@ -41,7 +41,7 @@ func proxyTcp() {
 		return
 	}
 	fmt.Printf("Local Addr: %v\n", localIp.String())
-	server, err := net.Listen("tcp", localIp.String() + ":8081")
+	server, err := net.Listen("tcp", localIp.String()+":8081")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -53,8 +53,8 @@ func proxyTcp() {
 			fmt.Printf("Error: %v\n", err)
 			continue
 		}
-		fmt.Printf("Tcp Remote Addr: %v\n", client.RemoteAddr())
-		proxyConn := TcpProxyConn{ conn: client}
+		fmt.Printf("Tcp Remote Client Addr: %v\n", client.RemoteAddr())
+		proxyConn := TcpProxyConn{conn: client}
 		go proxyConn.handTcpProxy()
 	}
 	defer waitJob.Done()
@@ -68,7 +68,7 @@ func proxyUdp() {
 		return
 	}
 
-	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{ IP: localIp, Port: 8081})
+	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: localIp, Port: 8081})
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -85,4 +85,3 @@ func proxyUdp() {
 
 	defer waitJob.Done()
 }
-
